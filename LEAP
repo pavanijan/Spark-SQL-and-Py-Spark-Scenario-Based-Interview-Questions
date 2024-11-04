@@ -1,0 +1,517 @@
+Leap table creation:
+
+%sql
+--CREATE DATABASE IF NOT EXISTS z_xlc_0188_leap_db
+--LOCATION "abfss://z-xlc-0188-lega-dv-ue2-dlc01-legalebillingapextracttra@zxlc0149adlsdvue2dls01.dfs.core.windows.net/z-xlc-0188-leap/z_xlc_0188_leap_db";
+
+CREATE DATABASE IF NOT EXISTS z_xlc_0188_leap_db
+LOCATION "dbfs:/mnt/z-xlc-0188-leap/z-xlc-0188-leap/z_xlc_0188_leap_db";
+------
+#adls_location = "abfss://z-xlc-0188-lega-dv-ue2-dlc01-legalebillingapextracttra@zxlc0149adlsdvue2dls01.dfs.core.windows.net/z-xlc-0188-leap/z_xlc_0188_leap_db" 
+
+adls_location = "dbfs:/mnt/z-xlc-0188-leap/z-xlc-0188-leap/z_xlc_0188_leap_db"
+------
+from pyspark.sql import SparkSession
+from pyspark.sql.types import *
+
+# Create or retrieve a Spark session
+spark = SparkSession.builder.appName("CreateTable").getOrCreate()
+
+# Define the schema
+schema_control_table = StructType([
+    StructField("process_ctrl_key", IntegerType(), False),
+    StructField("Min_aprvd_dt", TimestampType(), True),
+    StructField("Max_aprvd_dt", TimestampType(), True),
+    StructField("file_name", StringType(), True),
+    StructField("input_rec_count", IntegerType(), True),
+    StructField("crrnt_process_flag", StringType(), True),
+    StructField("process_start_time", TimestampType(), True),
+    StructField("process_end_time", TimestampType(), True),
+    StructField("process_status", StringType(), True),
+    StructField("output_rec_count",  IntegerType(), True),
+    StructField("added_dt", TimestampType(), True),
+    StructField("modify_dt", TimestampType(), True)
+])
+
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS z_xlc_0188_leap_db.t_xl_leap_process_ctrl_key (
+    process_ctrl_key INT,
+    Min_aprvd_dt TIMESTAMP,
+    Max_aprvd_dt TIMESTAMP,
+    file_name STRING,
+    input_rec_count INT,
+    crrnt_process_flag STRING,
+    process_start_time TIMESTAMP,
+    process_end_time TIMESTAMP,
+    process_status STRING,
+    output_rec_count INT,
+    added_dt TIMESTAMP,
+    modify_dt TIMESTAMP
+) USING DELTA
+""")
+-------------------
+### Exception Table ( TABLE 2 )
+
+spark = SparkSession.builder.appName("CreateTable").getOrCreate()
+
+# Define the schema
+schema_exception_table = StructType([
+    StructField("exceptions_key", IntegerType(), False),
+    StructField("process_ctrl_key", StringType(), False),
+    StructField("File_name", StringType(), True),
+    StructField("record_num", StringType(), True),
+    StructField("column_name", StringType(), True),
+    StructField("column_data_desc", StringType(), True),
+    StructField("error_msg_num", IntegerType(), True),
+    StructField("error_msg_desc", StringType(), True),
+    StructField("added_dt", TimestampType(), True)
+
+])
+
+#spark.sql("DROP TABLE IF EXISTS z_xlc_0188_leap_db.t_xl_leap_exceptions")
+spark.sql(f"CREATE TABLE IF NOT EXISTS  z_xlc_0188_leap_db.t_xl_leap_exceptions( exceptions_key	INT,process_ctrl_key	STRING,File_name	STRING,record_num	STRING, column_name	STRING, column_data_desc	STRING, error_msg_num	INT, error_msg_desc	STRING,added_dt	TIMESTAMP ) USING DELTA ")
+-----------------
+### Output file ( TABLE - t_xl_leap_final_output_table)
+
+from pyspark.sql import SparkSession
+from pyspark.sql.types import *
+
+# Create or retrieve a Spark session
+spark = SparkSession.builder.appName("CreateTable").getOrCreate()
+
+# Define the schema
+schema_final_output_table = StructType([
+    StructField("process_ctrl_key", IntegerType(), False),
+    StructField("added_dt", TimestampType(), True),
+    StructField("output_record", StringType(), True)
+])
+spark.sql(f"CREATE TABLE IF NOT EXISTS z_xlc_0188_leap_db.t_xl_leap_final_output_table (  process_ctrl_key int,added_dt TIMESTAMP,  output_record STRING ) USING DELTA ")
+---------------------
+01_leap_process_ctrl_file_load:
+
+ %sql
+--  Control table status update for last run
+  UPDATE z_xlc_0188_leap_db.t_xl_leap_process_ctrl_key
+  SET crrnt_process_flag = 'N', modify_dt = current_timestamp
+  WHERE crrnt_process_flag = 'Y';
+
+-----
+##Coding for control table t_xl_leap_process_ctrl_key data insertion
+
+from pyspark.sql import SparkSession , Row
+from pyspark.sql.functions import col, to_date, lit, current_date, concat_ws, min as pyspark_min, max as pyspark_max , to_timestamp , current_timestamp , current_date , concat
+from pyspark.sql.types import StructType, StructField, IntegerType, TimestampType, StringType , DoubleType , DateType
+from datetime import datetime
+from pyspark.sql.functions import max as pyspark_max
+import os
+
+# Create a SparkSession
+spark = SparkSession.builder.appName("DateConversionAndMinMax").getOrCreate()
+
+schema_satge_staple_cnt = StructType([
+    StructField("Vendor_Name", StringType(), True),
+    StructField("Vendor_ID", StringType(), True),
+    StructField("Invoice_Num", StringType(), True),
+    StructField("Invoice_Dt", StringType(), True),
+    StructField("Total_aprvd_amt", StringType(), True),
+    StructField("curr_cd", StringType(), True),
+    StructField("Matter_Name", StringType(), True),
+    StructField("aprvd_dt", StringType(), True),
+    StructField("Final_Approval_By", StringType(), True),
+    StructField("Final_Approver_Cmmnt", StringType(), True),
+    StructField("Lead_comp_person", StringType(), True),
+    StructField("Billing_prd_Start_dt", StringType(), True),
+    StructField("Billing_prd_End_dt", StringType(), True),
+    StructField("Invoice_recvd_dt", StringType(), True),
+    StructField("comp_matter_num", StringType(), True),
+    StructField("Tracker_Matter_ID", StringType(), True),
+    StructField("Vendor_Tax_ID", StringType(), True),
+    StructField("Vendor_Person_Responsible", StringType(), True),
+    StructField("Vendor_Matter_Num", StringType(), True),
+    StructField("Invoice_Desc", StringType(), True),
+    StructField("AP_Extract_Route", StringType(), True),
+    StructField("aprvd_Fees_amt", StringType(), True),
+    StructField("aprvd_Expenses_amt", StringType(), True),
+    StructField("aprvd_VAT_amt", StringType(), True),
+    StructField("Billed_Fees_amt", StringType(), True),
+    StructField("Billed_Expenses_amt", StringType(), True),
+    StructField("Billed_VAT_amt", StringType(), True),
+    StructField("adj_to_fees_amt", StringType(), True),
+    StructField("Adj_to_Expenses_amt", StringType(), True),
+    StructField("Adj_to_VAT_amt", StringType(), True),
+    StructField("Discount_to_Fees_amt", StringType(), True),
+    StructField("Discount_to_Expenses_amt", StringType(), True),
+    StructField("Discount_to_VAT_amt", StringType(), True),
+    StructField("Fees_paid_by_third_party_amt", StringType(), True),
+    StructField("expenses_paid_by_third_party_amt", StringType(), True),
+    StructField("VAT_paid_by_third_party_amt", StringType(), True),
+    StructField("Fees_withheld_amt", StringType(), True),
+    StructField("Expenses_Withheld_amt", StringType(), True),
+    StructField("VAT_Withheld_amt", StringType(), True),
+    StructField("cost_center_num1", StringType(), True),
+    StructField("GL_acct_num1", StringType(), True),
+    StructField("other_num1", StringType(), True),
+    StructField("pct_alloc_num1", StringType(), True),
+    StructField("amt_alloc_num1", StringType(), True),
+    StructField("cost_center_num2", StringType(), True),
+    StructField("GL_acct_num2", StringType(), True),
+    StructField("other_num2", StringType(), True),
+    StructField("pct_alloc_num2", StringType(), True),
+    StructField("amt_alloc_num2", StringType(), True),
+    StructField("cost_center_num3", StringType(), True),
+    StructField("GL_acct_num3", StringType(), True),
+    StructField("other_num3", StringType(), True),
+    StructField("pct_alloc_num3", StringType(), True),
+    StructField("amt_alloc_num3", StringType(), True),
+    StructField("cost_center_num4", StringType(), True),
+    StructField("GL_acct_num4", StringType(), True),
+    StructField("other_num4", StringType(), True),
+    StructField("pct_alloc_num4", StringType(), True),
+    StructField("amt_alloc_num4", StringType(), True),
+    StructField("cost_center_num5", StringType(), True),
+    StructField("GL_acct_num5", StringType(), True),
+    StructField("other_num5", StringType(), True),
+    StructField("pct_alloc_num5", StringType(), True),
+    StructField("amt_alloc_num5", StringType(), True),
+    StructField("cost_center_num6", StringType(), True),
+    StructField("GL_acct_num6", StringType(), True),
+    StructField("other_num6", StringType(), True),
+    StructField("pct_alloc_num6", StringType(), True),
+    StructField("amt_alloc_num6", StringType(), True),
+    StructField("cost_center_num7", StringType(), True),
+    StructField("GL_acct_num7", StringType(), True),
+    StructField("other_num7", StringType(), True),
+    StructField("pct_alloc_num7", StringType(), True),
+    StructField("amt_alloc_num7", StringType(), True),
+    StructField("cost_center_num8", StringType(), True),
+    StructField("GL_acct_num8", StringType(), True),
+    StructField("other_num8", StringType(), True),
+    StructField("pct_alloc_num8", StringType(), True),
+    StructField("amt_alloc_num8", StringType(), True),
+    StructField("cost_center_num9", StringType(), True),
+    StructField("GL_acct_num9", StringType(), True),
+    StructField("other_num9", StringType(), True),
+    StructField("pct_alloc_num9", StringType(), True),
+    StructField("amt_alloc_num9", StringType(), True),
+    StructField("cost_center_num10", StringType(), True),
+    StructField("GL_acct_num10", StringType(), True),
+    StructField("other_num10", StringType(), True),
+    StructField("pct_alloc_num10", StringType(), True),
+    StructField("amt_alloc_num10", StringType(), True),
+    StructField("allocn_cmmnts_to_ap", StringType(), True),
+    StructField("vendor_id2", StringType(), True),
+    StructField("vendor_id3", StringType(), True),
+    StructField("added_dt", StringType(), True)
+])
+
+df_leap_stage_staple_cntrl_load = spark.read.format("csv") \
+    .option("header", "true") \
+    .option("delimiter", ",") \
+    .schema(schema_satge_staple_cnt) \
+    .load("dbfs:/mnt/z-xlc-0188-leap/z-xlc-0188-leap/Input/t_xl_leap_stage_staple.csv")
+
+df_leap_stage_staple_cntrl_load = df_leap_stage_staple_cntrl_load.withColumn("aprvd_dt_timestamp",to_timestamp("aprvd_dt", "MM/dd/yyyy"))
+
+max_aprvd_dt = df_leap_stage_staple_cntrl_load.agg(pyspark_max(col("aprvd_dt_timestamp"))).collect()[0][0]
+
+min_aprvd_dt = df_leap_stage_staple_cntrl_load.agg(pyspark_min(col("aprvd_dt_timestamp"))).collect()[0][0]
+
+input_record_count = df_leap_stage_staple_cntrl_load.count()
+
+### Get current date
+current_date_value = spark.range(1).select(current_timestamp()).collect()[0][0]
+
+crrnt_process_flag = 'Y'
+
+process_status = 'Working'
+ 
+file_name_fix = "Tracker Invoices.Accounting Dept. - U.S.."
+##current_date_lit = current_date_value.strftime("%Y-%m-%d %H:%M:%S")
+# current_date_lit = current_date_value.strftime("%Y-%m-%d %H%M")
+# max_aprvd_dt_lit = max_aprvd_dt.strftime("%Y-%m-%d")
+# min_aprvd_dt_lit = min_aprvd_dt.strftime("%Y-%m-%d")
+
+
+current_date_lit = current_date_value.strftime("%Y-%m-%d %H%M")
+max_aprvd_dt_lit = max_aprvd_dt.strftime("%Y-%m-%d") if max_aprvd_dt is not None else "default_value"
+min_aprvd_dt_lit = min_aprvd_dt.strftime("%Y-%m-%d") if min_aprvd_dt is not None else "default_value"
+
+file_name = file_name_fix + '' + current_date_lit + '' + min_aprvd_dt_lit + ' to ' + max_aprvd_dt_lit + '.csv' 
+
+schema_cntrl = StructType([
+
+StructField("min_aprvd_dt", TimestampType(), True),
+StructField("max_aprvd_dt", TimestampType(), True),
+StructField("file_name", StringType(), True),
+StructField("input_rec_count", IntegerType(), True),
+StructField("crrnt_process_flag", StringType(), True),
+StructField("process_start_time", TimestampType(), True),
+StructField("process_end_time", TimestampType(), True),
+StructField("process_status", StringType(), True),
+StructField("output_rec_count", StringType(), True),
+StructField("added_dt", TimestampType(), True),
+StructField("modify_dt", TimestampType(), True)
+])
+ 
+df_leap_process_ctrl = spark.createDataFrame([(   min_aprvd_dt, max_aprvd_dt,file_name, input_record_count, crrnt_process_flag , current_date_value, current_date_value, process_status,None,current_date_value, None)], schema_cntrl)
+
+df_leap_process_ctrl.createOrReplaceTempView('temp_tbl_t_xl_leap_process_ctrl_key')
+
+--------------------
+%sql
+INSERT INTO z_xlc_0188_leap_db.t_xl_leap_process_ctrl_key ( 
+  process_ctrl_key,
+  Min_aprvd_dt,
+  Max_aprvd_dt ,
+  file_name ,
+  input_rec_count ,
+  crrnt_process_flag ,
+  process_start_time ,
+  process_end_time ,
+  process_status ,
+  output_rec_count ,
+  added_dt ,
+  modify_dt 
+  )
+  Select 
+  (select (case when isnull(max(process_ctrl_key)) then 1 else max(process_ctrl_key)+1 end)  from z_xlc_0188_leap_db.t_xl_leap_process_ctrl_key) as process_ctrl_key,
+  CAST(Min_aprvd_dt AS DATE),
+  Max_aprvd_dt ,
+  file_name ,
+  input_rec_count ,
+  crrnt_process_flag ,
+  process_start_time ,
+  process_end_time ,
+  process_status ,
+   CAST(output_rec_count AS INT),  -- Cast output_rec_count to INT
+  added_dt ,
+  modify_dt from temp_tbl_t_xl_leap_process_ctrl_key
+===========================================
+02_leap_vendor_info:
+
+from pyspark.sql import *
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+from datetime import datetime
+from pyspark.sql.functions import *
+import os
+
+#adls_location = "abfss://z-xlc-0188-lega-dv-ue2-dlc01-legalebillingapextracttra@zxlc0149adlsdvue2dls01.dfs.core.windows.net/z-xlc-0188-leap/z_xlc_0188_leap_db"
+adls_location = "dbfs:/mnt/z-xlc-0188-leap/z-xlc-0188-leap/z_xlc_0188_leap_db"
+
+### Vendor Table ( TABLE t_xl_leap_vendor_info creation command )
+
+# Create or retrieve a Spark session
+spark = SparkSession.builder.appName("CreateTable").getOrCreate()
+
+# Define the schema
+schema_vendor_info = StructType([
+    StructField("vendor_info_key", IntegerType(), True),
+    StructField("setid" , StringType(), True),
+    StructField("vendor_id" , StringType(), True),
+    StructField("vendor_name" , StringType(), True),
+    StructField("vendor_name_short" , StringType(), True),
+    StructField("vendor_loc" , StringType(), True),
+    StructField("address1" , StringType(), True),
+    StructField("address2" , StringType(), True),
+    StructField("address3" , StringType(), True),
+    StructField("city" , StringType(), True),
+    StructField("state" , StringType(), True),
+    StructField("postal" , StringType(), True),
+    StructField("pymnt_method" , StringType(), True),
+    StructField("pymnt_separate" , StringType(), True),
+    StructField("pymnt_handling_cd" , StringType(), True),
+    StructField("bank_cd" , StringType(), True),
+    StructField("bank_acct_key" , StringType(), True),
+    StructField("setid_1" , StringType(), True),
+    StructField("vendor_id_1" , StringType(), True),
+    StructField("address_seq_num" , StringType(), True),
+    StructField("effective_dt" , TimestampType(), True),
+    StructField("withholding_setid" , StringType(), True),
+    StructField("withholding_code" , StringType(), True),
+    StructField("added_dt", TimestampType(), True),
+    StructField("modify_dt" , TimestampType(), True)
+])
+
+spark.sql("DROP TABLE IF EXISTS z_xlc_0188_leap_db.t_xl_leap_vendor_info")
+spark.sql("""
+   CREATE TABLE z_xlc_0188_leap_db.t_xl_leap_vendor_info (
+      --vendor_info_key INT,
+      vendor_info_key BIGINT GENERATED AlWAYS AS IDENTITY (START WITH 1 INCREMENT BY 1),
+      setid STRING,
+      vendor_id STRING,
+      vendor_name STRING,
+      vendor_name_short STRING,
+      vendor_loc STRING,
+      address1 STRING,
+      address2 STRING,
+      address3 STRING,
+      city STRING,
+      state STRING,
+      postal STRING,
+      pymnt_method STRING,
+      pymnt_separate STRING,
+      pymnt_handling_cd STRING,
+      bank_cd STRING,
+      bank_acct_key STRING,
+      setid_1 STRING,
+      vendor_id_1 STRING,
+      address_seq_num STRING,
+      effective_dt TIMESTAMP,
+      withholding_setid STRING,
+      withholding_code STRING,
+      added_dt TIMESTAMP,
+      modify_dt TIMESTAMP
+   ) USING DELTA
+""")
+
+# Reading table 1 - vendor file 
+
+# ------------------- - LOCATION OF FILE ---------------- 
+
+adls_location_mnt = "dbfs:/mnt/z-xlc-0188-leap/z-xlc-0188-leap/Input/Vendor_Info.txt"
+
+schema_vendor_info = StructType([
+  #  StructField("vendor_info_key", IntegerType(), True),
+    StructField("setid" , StringType(), True),
+    StructField("vendor_id" , StringType(), True),
+    StructField("vendor_name" , StringType(), True),
+    StructField("vendor_name_short" , StringType(), True),
+    StructField("vendor_loc" , StringType(), True),
+    StructField("address1" , StringType(), True),
+    StructField("address2" , StringType(), True),
+    StructField("address3" , StringType(), True),
+    StructField("city" , StringType(), True),
+    StructField("state" , StringType(), True),
+    StructField("postal" , StringType(), True),
+    StructField("pymnt_method" , StringType(), True),
+    StructField("pymnt_separate" , StringType(), True),
+    StructField("pymnt_handling_cd" , StringType(), True),
+    StructField("bank_cd" , StringType(), True),
+    StructField("bank_acct_key" , StringType(), True),
+    StructField("setid_1" , StringType(), True),
+    StructField("vendor_id_1" , StringType(), True),
+    StructField("address_seq_num" , StringType(), True),
+    StructField("effective_dt" , TimestampType(), True),
+    StructField("withholding_setid" , StringType(), True),
+    StructField("withholding_code" , StringType(), True),
+    StructField("added_dt", TimestampType(), True),
+    StructField("modify_dt" , TimestampType(), True)
+])
+
+#file_type="delta"
+#infer_schema="false"
+#first_row_is_header="true"
+#delimiter="\t"
+ 
+df_f_vendor_info = spark.read.format("csv") \
+    .option("header", "false") \
+    .option("delimiter", "\t") \
+    .schema(schema_vendor_info) \
+    .load(adls_location_mnt) 
+
+# Show the data
+# df_f_vendor_info.show()
+
+# Transformtion Logic on all the columns.
+
+df_f_vendor_info  = df_f_vendor_info.withColumn('setid', trim(df_f_vendor_info.setid))
+df_f_vendor_info  = df_f_vendor_info.withColumn('vendor_id', trim(df_f_vendor_info.vendor_id))
+# lpad on column vendor_id
+df_f_vendor_info = df_f_vendor_info.withColumn('vendor_id', lpad('vendor_id',10, '0'))
+df_f_vendor_info  = df_f_vendor_info.withColumn('vendor_name', trim(df_f_vendor_info.vendor_name))
+df_f_vendor_info  = df_f_vendor_info.withColumn('vendor_name_short', trim(df_f_vendor_info.vendor_name_short))
+df_f_vendor_info  = df_f_vendor_info.withColumn('vendor_loc', trim(df_f_vendor_info.vendor_loc))
+df_f_vendor_info  = df_f_vendor_info.withColumn('address1', trim(df_f_vendor_info.address1))
+df_f_vendor_info  = df_f_vendor_info.withColumn('address2', trim(df_f_vendor_info.address2))
+df_f_vendor_info  = df_f_vendor_info.withColumn('address3', trim(df_f_vendor_info.address3))
+df_f_vendor_info  = df_f_vendor_info.withColumn('city', trim(df_f_vendor_info.city))
+df_f_vendor_info  = df_f_vendor_info.withColumn('state', trim(df_f_vendor_info.state))
+df_f_vendor_info  = df_f_vendor_info.withColumn('postal', trim(df_f_vendor_info.postal))
+df_f_vendor_info  = df_f_vendor_info.withColumn('pymnt_method', trim(df_f_vendor_info.pymnt_method))
+df_f_vendor_info  = df_f_vendor_info.withColumn('pymnt_separate', trim(df_f_vendor_info.pymnt_separate))
+df_f_vendor_info  = df_f_vendor_info.withColumn('pymnt_handling_cd', trim(df_f_vendor_info.pymnt_handling_cd))
+df_f_vendor_info  = df_f_vendor_info.withColumn('bank_cd', trim(df_f_vendor_info.bank_cd))
+df_f_vendor_info  = df_f_vendor_info.withColumn('bank_acct_key', trim(df_f_vendor_info.bank_acct_key))
+df_f_vendor_info  = df_f_vendor_info.withColumn('setid_1', trim(df_f_vendor_info.setid_1))
+df_f_vendor_info  = df_f_vendor_info.withColumn('vendor_id_1', trim(df_f_vendor_info.vendor_id_1))
+# lpad on vendor_id1
+df_f_vendor_info = df_f_vendor_info.withColumn('vendor_id_1', lpad('vendor_id_1',10, '0'))
+df_f_vendor_info  = df_f_vendor_info.withColumn('address_seq_num', trim(df_f_vendor_info.address_seq_num))
+df_f_vendor_info  = df_f_vendor_info.withColumn('withholding_setid', trim(df_f_vendor_info.withholding_setid))
+df_f_vendor_info  = df_f_vendor_info.withColumn('withholding_code', trim(df_f_vendor_info.withholding_code))
+
+# Get the current date value
+current_date_value = current_date()
+df_f_vendor_info= df_f_vendor_info.withColumn("effective_dt", lit(current_date_value))
+current_date_time_value = spark.range(1).select(current_timestamp()).collect()[0][0]
+print("current_date", current_date_time_value)
+
+# Add added_dt column
+df_f_vendor_info = df_f_vendor_info.withColumn("added_dt", lit(current_date_time_value))
+
+# Add modify_dt column
+df_f_vendor_info = df_f_vendor_info.withColumn("modify_dt", lit(current_date_time_value))
+
+# Show the updated DataFrame
+# df_f_vendor_info.display()
+
+df_f_vendor_info.createOrReplaceTempView('temp_tbl_insert_vendor_info')
+
+
+%sql
+INSERT INTO z_xlc_0188_leap_db.t_xl_leap_vendor_info ( 
+ setid ,
+ vendor_id ,
+ vendor_name ,
+ vendor_name_short ,
+ vendor_loc ,
+ address1 ,
+ address2 ,
+ address3 ,
+ city ,
+ state ,
+ postal ,
+ pymnt_method ,
+ pymnt_separate ,
+ pymnt_handling_cd ,
+ bank_cd ,
+ bank_acct_key ,
+ setid_1 ,
+ vendor_id_1 ,
+ address_seq_num ,
+ effective_dt ,
+ withholding_setid ,
+ withholding_code ,
+ added_dt ,
+ modify_dt 
+
+  )
+  Select 
+ setid ,
+ vendor_id ,
+ vendor_name ,
+ vendor_name_short ,
+ vendor_loc ,
+ address1 ,
+ address2 ,
+ address3 ,
+ city ,
+ state ,
+ postal ,
+ pymnt_method ,
+ pymnt_separate ,
+ pymnt_handling_cd ,
+ bank_cd ,
+ bank_acct_key ,
+ setid_1 ,
+ vendor_id_1 ,
+ address_seq_num ,
+ effective_dt ,
+ withholding_setid ,
+ withholding_code,
+  added_dt ,
+ modify_dt 
+  from temp_tbl_insert_vendor_info
+
+================================================
