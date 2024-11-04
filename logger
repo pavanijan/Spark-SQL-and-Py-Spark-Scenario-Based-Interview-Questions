@@ -1,0 +1,143 @@
+logger:
+import logging
+import datetime
+import os
+import sys
+import pyodbc
+from pyspark.sql.functions import *
+
+# Logger Module #
+
+class Logger:
+  
+  def __init__(self, loggingName,  logFolder, fileName, dbfsBasePath = '/dbfs/mnt/adlsgen2_sz/databricksLogs', logLevel = 'INFO', localBasePath = '/logs/databricksLogs', dbLoggingEnabled = False ):
+    try:
+      self.dbfsBasePath = dbfsBasePath
+      self.localBasePath = localBasePath
+      
+      if logLevel == 'INFO':
+        self.logLevel = logging.INFO
+      elif logLevel == 'DEBUG':
+        self.logLevel = logging.DEBUG
+      else:
+        print("log level is not vaild. Setting to default INFO level.")
+        self.logLevel = logging.INFO
+        
+      self.dbLoggingEnabled = dbLoggingEnabled
+      
+      if not os.path.exists(self.localBasePath):
+        print("Creating the local base bath - " + self.localBasePath)
+        os.makedirs(self.localBasePath)
+      
+      self.timestamp = str(datetime.datetime.now().strftime('%Y%m%d_%H:%M:%S'))
+      
+      self.loggingName = loggingName
+      self.logFolder = logFolder
+      self.fileName = fileName
+      
+      self.logger = logging.getLogger(self.loggingName)
+      self.logger.setLevel(self.logLevel)
+      
+      #checking if the dbfs path exists 
+      if not os.path.exists(self.dbfsBasePath + '/' + self.logFolder):
+        print("Dbfs relative path is not available. Creating the Dbfs relative path - " + self.dbfsBasePath + '/' + self.logFolder)
+        os.makedirs(self.dbfsBasePath + '/' + self.logFolder)
+      
+      self.logFileDbfs = self.dbfsBasePath + '/' + self.logFolder + '/' + self.fileName + '_' + self.timestamp + '.log'
+      self.logFileDbfs = self.logFileDbfs.replace(':',"_")
+      
+      #checking if the local path exists 
+      if not os.path.exists(self.localBasePath + '/' + self.logFolder):
+        print("Local relative path is not available. Creating the local relative path - " + self.localBasePath + '/' + self.logFolder)
+        os.makedirs(self.localBasePath + '/' + self.logFolder)
+      
+      self.logFileLocal = self.localBasePath + '/' + self.logFolder + '/' + self.fileName + '_' + self.timestamp + '.log'
+      self.logFileLocal = self.logFileLocal.replace(':',"_")
+      
+      print("Logging dbfs file - " + self.logFileDbfs)
+      print("Logging local file  - " + self.logFileLocal)
+
+      self.replacePath = self.dbfsBasePath.replace('/dbfs','').replace('/main/','')
+      try:
+        self.adlsPath = spark.createDataFrame(dbutils.fs.mounts()).filter(col("mountPoint") == self.replacePath).collect()[0][1]
+        self.fullyQualifiedAdlsPath = self.logFileDbfs.replace(self.replacePath,self.adlsPath).replace('/dbfs','')
+        print(f"ADLS Fully Qualified path - {self.fullyQualifiedAdlsPath}")
+        print("========================================================================================================================")
+        print("-----------------------------------Execute Below command to display the full log file----------------------------------")
+        print('print(f"""{spark.read.format("text").option("wholetext",True).load("'+self.fullyQualifiedAdlsPath+'").collect()[0][0]}""")')
+        print("========================================================================================================================")
+      except:
+        print("error in adls")
+      
+      
+      self.formatter = logging.Formatter('%(asctime)s : %(name)s : %(levelname)s : %(message)s')
+      
+      self.logFileDbfsHandle = logging.FileHandler(self.logFileDbfs,mode='w')
+      self.logFileDbfsHandle.setFormatter(self.formatter)
+      
+      self.logFileLocalHandle = logging.FileHandler(self.logFileLocal,mode='w')
+      self.logFileLocalHandle.setFormatter(self.formatter)
+      
+      if (self.logger.hasHandlers()):
+        self.logger.handlers.clear()
+      self.logger.addHandler(self.logFileDbfsHandle)
+      self.logger.addHandler(self.logFileLocalHandle)
+    except Exception:
+      print("!!! Exception while initializing the logger module !!!")
+      self.close()
+      raise Exception
+  
+  def info(self,message):
+    try:
+      print(message)
+      self.logger.info(message)
+      if self.dbLoggingEnabled:
+          print("DB logging implementation place holder")
+    except Exception:
+      print("!!! Exception happened while calling the 'info' method in logger module !!!")
+      self.close()
+      raise Exception
+
+  def debug(self, message):
+    try:
+      self.logger.debug(message)
+      if self.dbLoggingEnabled and self.logLevel == logging.DEBUG :
+          print("DB logging implementation place holder")
+    except Exception:
+      print("!!! Exception happened while calling the 'debug' method in logger module !!!")
+      self.close()
+      raise Exception
+      
+  def warning(self, message):
+    try:
+      self.logger.warning(message)
+      if self.dbLoggingEnabled:
+          print("DB logging implementation place holder")
+    except Exception:
+      print("!!! Exception happened while calling the 'warning' method in logger module !!!")
+      self.close()
+      raise Exception
+  
+  def exception(self, message):
+    try:
+      self.logger.exception(message)
+      if self.dbLoggingEnabled:
+          print("DB logging implementation place holder")
+    except Exception:
+      print("!!! Exception happened while calling the 'exception' method in logger module !!!")
+      self.close()
+      raise Exception
+  
+  def close(self):
+    try:
+      self.logFileLocalHandle.close()
+      self.logFileDbfsHandle.close()
+      self.logger.handlers.clear()
+    except Exception:
+      raise Exception
+  
+  def __del__(self):
+    print("Destructor of logger module is being called")
+    self.logFileDbfsHandle.close()
+    self.logFileLocalHandle.close()
+    self.logger.handlers.clear()
