@@ -1,0 +1,249 @@
+spark.conf.set(
+  "fs.azure.account.key.xlcdevdatalakegen02.dfs.core.windows.net",
+  dbutils.secrets.get(scope = "akv_db_dev", key = "etl-adls-sec-id")
+)
+
+
+%scala
+spark.conf.set(
+  "fs.azure.account.key.xlcazueus2pocedssbxrgsan.blob.core.windows.net",
+ 
+val df = spark.sql("select * from dw_xle_sz.t_ff_xle_event_underwriting_history")
+df.count()
+df.write
+  .format("com.databricks.spark.sqldw")
+  .option("url", "jdbc:sqlserver://xlc-azu-eus2-poc-edssbx-dw-server.database.windows.net:1433;database=dw_xle_sz_build;encrypt=true;user=dwadmin@xlc-azu-eus2-poc-edssbx-dw-server;password=23Ride@uber;trustServerCertificate=false;hostNameInCertificate=*.database.windows.net;loginTimeout=30;")
+  .option("forwardSparkAzureStorageCredentials", "true")
+  .option("dbTable", "t_ff_xle_event_underwriting_history")
+  .option("preActions","truncate table t_ff_xle_event_underwriting_history")
+  .mode("append")
+  .option("tempDir", "wasbs://sqldwstage@xlcazueus2pocedssbxrgsan.blob.core.windows.net/sqldwstage")
+  .save()
+====================================================
+Code to get the tables and row count in the tables:
+
+
+import pandas as pd
+import datetime as dt
+spark.sql("USE SCHEMA dw_xle_sz_delta")
+df = spark.sql("SHOW TABLES").toPandas()
+tables = df['tableName'].tolist()
+tables = [table for table in tables if table.startswith('t_')]
+table_name, row_count, time_row_count, time_all_rows = [], [], [], []
+for table in tables:
+  table_name.append(table)
+  try:
+    start_time = dt.datetime.now()
+    n_rows = spark.sql(f"SELECT COUNT(*) FROM {table}")
+    end_time = dt.datetime.now()
+    time_diff_nrows = str(round((end_time - start_time).total_seconds(), 2)) + " seconds"
+    start_time = dt.datetime.now()
+    spark.sql(f"SELECT * FROM {table}")
+    end_time = dt.datetime.now()
+    time_diff_allrows = str(round((end_time - start_time).total_seconds(), 2)) + " seconds"
+    row_count.append(n_rows.collect()[0][0])
+    time_row_count.append(time_diff_nrows)
+    time_all_rows.append(time_diff_allrows)
+  except Exception as error_msg:
+    row_count.append(str(error_msg).replace("\n", " "))
+    time_row_count.append("#N/A")
+    time_all_rows.append("#N/A")
+final_df = pd.DataFrame({'table_name': table_name, 'row_count': row_count, 'time_row_count': time_row_count, 'time_all_rows': time_all_rows})
+final_df
+
+
+display(final_df)
+===============================================================
+View DDLS for tables in database:
+
+
+from pyspark.sql import Row
+schema = "dw_xle_sz"
+views_list = spark.sql(f"show views in {schema}")
+def get_create(view_name):
+  try:
+    result = spark.sql(f"show create table {schema}.{view_name}").collect()
+    create_statement = result[0]['createtab_stmt']
+    return create_statement
+  except Exception as e:
+    return f"Error:{str(e)}"
+  
+view_ddl = []
+for row in views_list.collect():
+  view_name =row["viewName"]
+  
+  ddl = get_create(view_name)
+  view_ddl.append(Row(ddl_statement=ddl))
+ddl_df = spark.createDataFrame(view_ddl)
+ddl_df.display()
+
+========================================
+Dev Count Validation:
+---------------------------
+1)
+dbutils.widgets.text("schema" ,"" ,"schema")
+schema = dbutils.widgets.get("schema")
+print(f"schema - {schema}")
+dbutils.widgets.text("db_suffix" ,"" ,"db_suffix")
+db_suffix = dbutils.widgets.get("db_suffix")
+print(f"db_suffix - {db_suffix}")
+db_name = schema+db_suffix
+print(f"db_name - {db_name}")
+
+
+2)
+tables_query = spark.sql(f"show tables in {db_name}").collect()
+tables = [row['tableName']for row in tables_query] 
+results = []
+for table_name in tables:
+  try:
+    query = f"select count(*) as count from {db_name}.{table_name}"
+    result = spark.sql(query).collect()
+    cv = result[0]['count']
+    results.append({'Table': table_name,'count':cv})
+  except Exception as e:
+    print(f"Error querying {table_name}:{e}")
+df = spark.createDataFrame(results)
+df.display()
+
+==================================
+Path Size validation in dev:
+
+
+def get_size_of_path(path):
+    return sum([file.size for file in get_all_files_in_path(path)])
+def get_all_files_in_path(path, verbose=False):
+    nodes_new = []
+    nodes_new = dbutils.fs.ls(path)
+    files = []
+    while len(nodes_new) > 0:
+        current_nodes = nodes_new
+        nodes_new = []
+        for node in current_nodes:
+            if verbose:
+                print(f"Processing {node.path}")
+            children = dbutils.fs.ls(node.path)
+            for child in children:
+                if child.size == 0 and child.path != node.path:
+                    nodes_new.append(child)
+                elif child.path != node.path:
+                    files.append(child)
+    return files
+path = "abfss://axiom-backups@xlaeus2nseddvdlgen2.dfs.core.windows.net/data_refresh/R74/dw_xle_sz_ppd_r74/t_ax_current_opportunity"
+print(f"Size of {path} in gb: {get_size_of_path(path) / 1024 / 1024 / 1024}")
+==================================
+
+ Update Job Permissions in Databricks
+import requests, json
+headers = {"Authorization": "Bearer 
+data = {"access_control_list": [
+  # {"service_principal_name": "5fa93ac6-174a-42e3-98b1-f224eb17ab7b", "permission_level": "IS_OWNER"},
+  {"user_name": E"},
+  {"user_name": "abhishek.sharma2@axaxl.com", "permission_level": "CAN_MANAGE"},
+  {"user_name": "annamalai.kasi@axaxl.com", "permission_level": "CAN_MANAGE"}
+  ]
+}
+job_ids = [
+  361513572791076,                                  # seed
+  365922190220732,                                  # products wrapper
+    385229351342482,                                    # shared_object
+    39500001338376, 473388742611354,                    # claim (pipeline + semantic)
+    1032521000401899, 623513636492487,                  # claims_aob_cat (pipeline + semantic)
+    106303233292322, 480419715357338,                   # client_reporting (pipeline + semantic)
+    395832383920496, 623761931604779, 370852060239223,  # loss_run (pipeline_1 + pipeline_2 + semantic)
+    143110232711400, 95440959651185,                    # marine_cargo (pipeline + semantic)
+    906614031076444, 977152438719724,                   # uwm (pipeline + semantic)
+    1047090625016215, 935116382277748,                  # uwmi (pipeline + semantic)
+  1088946524676877,                                 # cad_bimonthly_ibnr wrapper
+    713912926231477, 1010635523867116,                  # cad_bimonthly_ibnr (pipeline + semantic)
+  1007665510589497,                                 # cad_bimonthly_pricing wrapper
+    724929660424819, 1050428919674627,                  # cad_bimonthly_pricing (pipeline + semantic)
+  537496463110694,                                  # cad_trimonthly wrapper
+    330675227163552, 898086785296229,                   # cad_trimonthly (pipeline + semantic)
+  609531083294832,                                  # cad_annually wrapper
+    352571092805087, 679550911899146,                   # cad_annually (pipeline + semantic)
+  590399587883791                                   # adhoc
+  ]
+for job_id in job_ids:
+  acl_url = f"https://adb-7627792522749697.17.azuredatabricks.net/api/2.0/permissions/jobs/{job_id}"
+  
+  response = requests.patch(acl_url, json.dumps(data), headers=headers)
+  print(job_id, response.status_code)
+
+===========================================================
+
+# Get and Update Job Details in Databricks
+import requests, json
+headers = {"Authorization": "Bearer "}
+job_ids = [
+  361513572791076,                                  # seed
+  365922190220732,                                  # products wrapper
+    385229351342482,                                    # shared_object
+    39500001338376, 473388742611354,                    # claim (pipeline + semantic)
+    1032521000401899, 623513636492487,                  # claims_aob_cat (pipeline + semantic)
+    106303233292322, 480419715357338,                   # client_reporting (pipeline + semantic)
+    395832383920496, 623761931604779, 370852060239223,  # loss_run (pipeline_1 + pipeline_2 + semantic)
+    143110232711400, 95440959651185,                    # marine_cargo (pipeline + semantic)
+    906614031076444, 977152438719724,                   # uwm (pipeline + semantic)
+    1047090625016215, 935116382277748,                  # uwmi (pipeline + semantic)
+  1088946524676877,                                 # cad_bimonthly_ibnr wrapper
+    713912926231477, 1010635523867116,                  # cad_bimonthly_ibnr (pipeline + semantic)
+  1007665510589497,                                 # cad_bimonthly_pricing wrapper
+    724929660424819, 1050428919674627,                  # cad_bimonthly_pricing (pipeline + semantic)
+  537496463110694,                                  # cad_trimonthly wrapper
+    330675227163552, 898086785296229,                   # cad_trimonthly (pipeline + semantic)
+  609531083294832,                                  # cad_annually wrapper
+    352571092805087, 679550911899146,                   # cad_annually (pipeline + semantic)
+  590399587883791                                   # adhoc
+  ]
+get_job_url = f"https://adb-7627792522749697.17.azuredatabricks.net/api/2.1/jobs/get/"
+update_job_url = f"https://adb-7627792522749697.17.azuredatabricks.net/api/2.1/jobs/update/"
+for job_id in job_ids:
+  data = {"job_id": job_id}
+  response = requests.get(get_job_url, data, headers=headers)
+  # print(response.json())
+  job_name = response.json()["settings"]["name"]
+  print(job_id, job_name)
+  # try:
+  #   commands = response.json()["settings"]["tasks"][0]["dbt_task"]["commands"]
+  # except:
+  #   commands = []
+  # print(job_id, job_name, commands) #response.json(), response.status_code, response.json()["run_as_user_name"], response.json()["run_as_owner"])
+  # if "git_source" in response.json()["settings"].keys():
+  #   data["new_settings"] = response.json()["settings"]
+  #   data["new_settings"]["git_source"]["git_branch"] = "XLCDIADEEP-29439"
+  #   data["new_settings"]["tasks"][0]["timeout_seconds"] = 18000
+  #   response = requests.post(update_job_url, json.dumps(data), headers=headers)
+  #   print(job_id, response.status_code, response.json())
+============================================
+
+# Add Secrets in Databricks
+import requests, json
+create_url = "https://adb-7627792522749697.17.azuredatabricks.net/api/2.0/secrets/put"
+delete_url = "https://adb-7627792522749697.17.azuredatabricks.net/api/2.0/secrets/delete"
+acl_url = "https://adb-7627792522749697.17.azuredatabricks.net/api/2.0/secrets/acls/put"
+headers = {"Authorization": "Bearer "}
+secret_dict = {
+              #  "DBT_TENANT_ID_DEV": "53b7cac7-14be-46d4-be43-f2ad9244d901",
+              #  "DBT_CLIENT_ID_DEV": "5fa93ac6-174a-42e3-98b1-f224eb17ab7b",
+              #  "DBT_CLIENT_SECRET_DEV": ",
+              #  "BTL_CLIENT_ID_DEV": "",
+               "BTL_CLIENT_SECRET_DEV": "",
+              #  "DBT_GIT_TOKEN": "",
+              #  "DATABRICKS_HOST_DEV": "adb-7627792522749697.17.azuredatabricks.net",
+              #  "DATABRICKS_HTTP_PATH_DEV": "/sql/protocolv1/o/7627792522749697/0927-100021-wda2fcyb"
+               }
+for key, value in secret_dict.items():
+  data = {
+    "scope": "sc-dbt",
+    "key": key
+    }
+  response = requests.post(delete_url, json.dumps(data), headers=headers)
+  print(response.json())
+  
+  data["string_value"] = value
+  response = requests.post(create_url, json.dumps(data), headers=headers)
+  print(response.json())
+# response = requests.post(acl_url, json.dumps({"scope": "sc-dbt", "principal": "5fa93ac6-174a-42e3-98b1-f224eb17ab7b", "permission": "READ"}), headers=headers)
+=============================================
+
