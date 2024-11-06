@@ -1,0 +1,31 @@
+Decide which architecture assets need to be updated, and update them: Databricks HLD / Tech Design to include Unity details (Harsh / Sheela / other TO)
+Decide if update to Databricks LLD is needed and action it 
+Create / update “Access Connector for Azure Databricks” LLD 
+Implement Azure Access Connector as a CPP capability (Automation).
+Decide how many access connectors we need (TO + DSP)
+(Assume existing CPP Databricks Workspace capability is still OK to be used)
+Define and make changes to Databricks Cluster CPP item 
+Deploy Unity catalog in line with LLD, no need to create a ‘capability’ out of it  
+Onboard and then off-board all existing workspaces onto Unity to trigger Identity Federation. 
+(Axiom tenant migration ETL / BTL jobs and data migration happen in the background) 
+Make sure we have enough IPs 
+Create Unity-enabled Workspaces: 2 for ‘labs’, then 5 for ETL/BTL (1 dev / 2 ppd / 2 prd), 3 workspaces for XCAT (DSP). LPL and SPL covered among these. (DSP)
+Decide how, then populate Unity Metastore 
+Decide on data access governance model. 
+Implement labs in the 2 interactive workspaces, including user spaces, catalogs, compute and extended connectivity. (DSP)
+Implement catalogs and other infrastructure in the dev / preprod / prod workspaces (DSP).
+Create external locations and catalog for each application
+Configure UC-enabled clusters and enable hive_metastore to UC workspace
+Migrate data from hive_metastore tables to Unity Catalog (external or managed tables)
+Setup separate user groups for SPL/LPL for each application
+Setup permissions on the migrated UC tables
+Provide USE CATALOG permissions to necessary users/groups
+Accesses (USE SCHEMA, CREATE TABLE, CREATE VOLUME etc.) beneath the catalog to be managed by the application teams
+Onboard interactive and dev user groups into the new workspaces, migrate user-specific data onto Unity Labs storage. (Unlocks Workbench shut-down in the legacy tenant, Unlocks migration of jobs) (DSP)
+Create recommended model for ETL / BTL / ML jobs – e.g. split between managed and external tables, DBX Workflow orchestration implementation etc. (DSP)
+Gradual migration of Axiom jobs dev, test and run onto Unity-enabled workspaces – including re-engineering as needed. (6-18 months) 
+Migration of workflows/notebooks
+Migration of DBFS files to Volumes
+End-to-end testing of migrated workflows/codes on UC (after required re-engineering)
+Phased switching-off legacy workflows/notebooks after successful testing
+Phased decommission of legacy-tenant and technical-tenant workspaces, and hive_metastore
